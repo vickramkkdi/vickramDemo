@@ -1,5 +1,5 @@
 <form>
-  <label>Application Usage Details</label>
+  <label>Application Usage Details Details</label>
   <fieldset submitButton="false"></fieldset>
   <row>
     <panel>
