@@ -1,0 +1,118 @@
+<form>
+  <label>Application Usage Details</label>
+  <fieldset submitButton="false"></fieldset>
+  <row>
+    <panel>
+      <html>
+        <h1 style="text-align: center;font-size:40px;">Application Usage Details</h1>
+      </html>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title></title>
+      <input type="time" token="field1" searchWhenChanged="true">
+        <label>Select the Time Range</label>
+        <default>
+          <earliest>-24h@h</earliest>
+          <latest>now</latest>
+        </default>
+      </input>
+      <input type="dropdown" token="hostname" searchWhenChanged="true">
+        <label>Host Name</label>
+        <choice value="*">All</choice>
+        <fieldForLabel>Host</fieldForLabel>
+        <fieldForValue>Host</fieldForValue>
+        <search>
+          <query>|tstats values(cs_host) as Host where index=aiam_mywizard_web_index by cs_host
+|fields Host
+|search Host=*accenture.com</query>
+          <earliest>-24h@h</earliest>
+          <latest>now</latest>
+        </search>
+        <default>*</default>
+        <initialValue>*</initialValue>
+      </input>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>No.of.users by Application</title>
+      <table>
+        <search>
+          <query>|tstats values(cs_username) as Username , values(cs_host) as Host  where index=aiam_mywizard_web_index by cs_username
+|fields -  cs_username
+|search Username=*@accenture.com
+|mvexpand Host
+|search Host=*accenture.com
+|stats dc(Username) as No.of.Users by Host
+
+|lookup URLs_to_ApplicationName.csv URLname as Host OUTPUTNEW ApplicationName AIRID
+|rename ApplicationName as "Application Name" AIRID as "AIR ID" Host as "Accessed URL" No.of.Users as "No.of.Unique Users"
+|table "AIR ID" "Application Name" "Accessed URL" "No.of.Unique Users"</query>
+          <earliest>$field1.earliest$</earliest>
+          <latest>$field1.latest$</latest>
+          <sampleRatio>1</sampleRatio>
+        </search>
+        <option name="count">20</option>
+        <option name="dataOverlayMode">none</option>
+        <option name="drilldown">cell</option>
+        <option name="percentagesRow">false</option>
+        <option name="rowNumbers">false</option>
+        <option name="totalsRow">false</option>
+        <option name="wrap">true</option>
+        <drilldown>
+          <set token="form.hostname">$click.value2$</set>
+        </drilldown>
+      </table>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <table>
+        <title>Detailed View</title>
+        <search>
+          <query>|tstats values(cs_username) as Username , values(cs_host) as Host where index=aiam_mywizard_web_index by cs_username _time
+|fields -  cs_username
+|search Username=*@accenture.com
+|mvexpand Host
+|search Host=*accenture.com
+|stats values(Username) as "User Name" values(_time) as Time by Host 
+|eval "Accessed Time"=strftime(Time,"%d/%m/%Y %H:%M:%S")
+|fields - Time
+|mvexpand "User Name"|mvexpand "Accessed Time" 
+|search Host="$hostname$"
+
+
+|lookup URLs_to_ApplicationName.csv URLname as Host OUTPUTNEW ApplicationName AIRID
+|rename ApplicationName as "Application Name" AIRID as "AIR ID" Host as "Accessed URL" 
+|table "AIR ID" "Application Name" "Accessed URL" "Accessed Time"</query>
+          <earliest>$field1.earliest$</earliest>
+          <latest>$field1.latest$</latest>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <table>
+        <title>Hourly Based Application Usage(Each 6 Hours for selected Time Period)</title>
+        <search>
+          <query>|tstats values(cs_username) as Username , values(cs_host) as Host where index=aiam_mywizard_web_index by cs_username _time
+|search Host=*accenture.com
+|timechart span=6h distinct_count(Username) as "Unique Users" by Host
+|untable _time Host "Unique Users"
+|eval Time=strftime(_time,"%m/%d/%Y %H:%M:%S")
+|xyseries Host Time "Unique Users"</query>
+          <earliest>$field1.earliest$</earliest>
+          <latest>$field1.latest$</latest>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+      </table>
+    </panel>
+  </row>
+</form>
