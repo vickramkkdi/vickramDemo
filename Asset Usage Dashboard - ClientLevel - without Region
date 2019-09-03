@@ -1,0 +1,146 @@
+index=aiam_mwizard_asset_real_access_index 
+| search Region!=*1* Region!=Null 
+| fillnull value="" "Product Name"
+| eval ClientName=trim(ClientName)
+| search ClientName!=*ccenture* AND ClientName != "*INTERNAL*" AND OperatingGroup!="NULL" 
+    AND OperatingGroup!="Other" AND OperatingGroup!="N/A" 
+| lookup MAS_Provisioning_Fulfilled_Report_fds.csv EndToEndUId as EndToEndUId OUTPUTNEW MasterClient ,GeographicUnit 
+| search GeographicUnit!=*Null* AND Status = "Fulfilled" 
+| fillnull value="NULL" cs_username 
+| eval Session=date_year+date_month+date_mday+cs_username 
+| eval usage="Used" 
+| search Asset=* 
+| table MasterClient,usage,Session,cs_username,Asset,OperatingGroup,Type 
+| stats dc(Session) as "User Session" dc(cs_username) as "User Count" by MasterClient ,Asset,usage,"OperatingGroup" 
+| fields MasterClient,Asset,usage,"OperatingGroup","User Session","User Count" 
+| rename MasterClient as ClientName 
+| append 
+    [| inputlookup MAS_Provisioning_Fulfilled_Report_fds.csv 
+    | search GeographicUnit!=NULL AND GeographicUnit!=*1* AND Status = "Fulfilled"
+    | eval ClientName=trim(ClientName)
+    | search ClientName!=*ccenture* AND ClientName != "*INTERNAL*" AND OperatingGroup!="NULL" AND OperatingGroup!="Other" AND OperatingGroup!="N/A" 
+    | fields MasterClient,"Product Name" , "OperatingGroup" 
+    | lookup asset_URL_Mapping_fds.csv "Tool Name" as "Product Name" OUTPUT Asset, 
+    | eval usage="Not Used" 
+    | eval "User Session" = "0" 
+    | eval "User Count" ="0" 
+    | dedup MasterClient,Asset,usage,OperatingGroup 
+    | mvexpand Asset 
+    | mvexpand ClientName 
+    | search Asset=* 
+    | rename MasterClient as ClientName] 
+| sort ClientName Asset OperatingGroup -usage 
+| dedup ClientName Asset OperatingGroup 
+| table ClientName,Asset,usage,OperatingGroup,"User Session","User Count" 
+| append 
+    [ search index="mywizard_intergration_and_architect_wizard_index"
+    | eval "Client Name"=trim('Client Name')
+    | search "Client Name"!=*ccenture* AND "Client Name" != "*INTERNAL*" 
+    | table "Client Name", CreatedByUser ,date_year,date_month,date_mday 
+    | eval Session=date_year+date_month+date_mday+CreatedByUser 
+    | stats dc(Session) as "User Session",dc(CreatedByUser) as "User Count" by "Client Name" 
+    | eval Asset="Architect Wizard (for myWizard)" 
+    | table Asset,"Client Name","User Session","User Count" 
+    | lookup MAS_Provisioning_Fulfilled_Report_fds.csv ClientName as "Client Name" OUTPUTNEW MasterClient,OperatingGroup 
+    | search MasterClient !="*INTERNAL*" 
+    | mvexpand MasterClient 
+    | mvexpand OperatingGroup 
+    | dedup MasterClient 
+    | rename MasterClient as ClientName 
+    | eval usage=if('User Session'=="0","Not Used","Used") 
+    | table Asset ClientName "User Count" "User Session" usage] 
+
+|append[|search index=aiam_mywizard_mywizard360_asset_index 
+    | eval OperatingGroup="Not Available" 
+    | eval ClientName=trim(ClientName)
+    | rename "AssetName" as Asset "ClientName" as ClientName "EndToEnd UID" as EndToEndUId User_ID as UserID 
+    | search ClientName!=*ccenture* AND ClientName != "*INTERNAL*" 
+    | replace "myWizard 360 Ticket Analysis" with "Deep Dive Trends & Text Analyzers" in Asset 
+    | replace "myWizard 360 Web Analytics" with "Web Analytics" in Asset 
+    | replace "myWizard 360 Automatic Ticket Resolver" with "myWizard 360 Automatic Ticket Resolver v3" in Asset 
+    | replace "myWizard 360 Web monitoring" with "Web monitoring" in Asset 
+    | replace "myWizard 360 Social Media Monitoring (Twitter)" with "Social Sentiment Analyzer" in Asset 
+    | replace "myWizard 360 Machine Learning" with "Machine Learning" in Asset 
+    | replace AiOps with "Auto Detect Production Failures (AI Based)" 
+    | search Asset!=Asset_Name AND Asset!=AssetName Asset!="Assets for System Integration and Application Development -Agile" 
+    | lookup mywizard360_AssetNameMapping.csv "Tool Name" as Asset OUTPUT Asset 
+    | mvexpand Asset 
+    | stats dc(UserID) as "User Count" sum(UserSession) as "User Session" by ClientName Asset OperatingGroup 
+    | fillnull value=0 "User Session" 
+    | eval usage=if("User Session"=="0","Not Used","Used") 
+    | table ClientName Asset "User Count" "User Session" usage OperatingGroup 
+    | append 
+        [ search index="aiam_mywizard_assetusage_mywizard360_index" source!="Mywizard360 Asset which we not receive usage.csv"
+        | eval ClientName=trim(ClientName)
+        | search ClientName!=*ccenture* AND ClientName != "*INTERNAL*" 
+        | eval OperatingGroup="Not Available" 
+        | rename "Delivery_Name" as Asset, User_ID as UserID 
+        | replace "myWizard 360 Ticket Analysis" with "Deep Dive Trends & Text Analyzers" in Asset 
+        | replace "myWizard 360 Web Analytics" with "Web Analytics" in Asset 
+        | replace "myWizard 360 Automatic Ticket Resolver" with "myWizard 360 Automatic Ticket Resolver v3" in Asset 
+        | replace "myWizard 360 Web monitoring" with "Web monitoring" in Asset 
+        | replace "myWizard 360 Social Media Monitoring (Twitter)" with "Social Sentiment Analyzer" in Asset 
+        | replace "myWizard 360 Machine Learning" with "Machine Learning" in Asset 
+        | replace AiOps with "Auto Detect Production Failures (AI Based)" 
+        | search Asset!=Asset_Name AND Asset!=AssetName Asset!="Assets for System Integration and Application Development -Agile" 
+        | lookup mywizard360_AssetNameMapping.csv "Tool Name" as Asset OUTPUT Asset 
+        | mvexpand Asset 
+        | stats dc(UserID) as "User Count" sum(UserSession) as "User Session" by ClientName ,Asset,OperatingGroup 
+        | fillnull value=0 "User Session" 
+        | eval usage=if('User Session'=="0","Not Used","Used") 
+        | table ClientName Asset "User Count" "User Session" usage OperatingGroup] 
+    | rename "User Session" as UserSession "User Count" as UserCount 
+    | lookup ClientNames_lookup_sri.csv "Client Name - Provided" as ClientName OUTPUT "Client - Corrected", "Operating Group" 
+    | rename "Client - Corrected" as client_name 
+    | fillnull client_name value="NULL" 
+    | fillnull "Operating Group" value="NULL" 
+    | eval "Client Name"= if(client_name=="NULL",ClientName,client_name) 
+    | eval "OperatingGroup1"=if('Operating Group'=="NULL",OperatingGroup,'Operating Group') 
+    | stats sum(UserSession) as "User Session",sum(UserCount) as "User Count" by "Client Name" Asset OperatingGroup1 usage 
+    | rename "Client Name" as ClientName,OperatingGroup1 as OperatingGroup 
+    | sort ClientName Asset OperatingGroup -usage 
+    | dedup ClientName Asset OperatingGroup]
+    | append 
+        [ search index="aiam_mywizard_assetusage_mywizard360_index" source="Mywizard360 Asset which we not receive usage.csv"
+        | eval ClientName="Others",usage="Not Used" 
+        | table ClientName Asset "User Count" "User Session" usage 
+        | search ClientName!=*ccenture* AND ClientName != "*INTERNAL*" 
+        | table ClientName Asset "User Count" "User Session" usage OperatingGroup]
+
+
+ 
+| append 
+    [ search index=aiam_mywizard_assetusagedashboard_manual_index 
+    | rename "Asset Name" as Asset "Master Client Name" as ClientName "User Count" as UserCount "User Session" as UserSession
+    | eval ClientName=trim(ClientName)
+    | search ClientName!=*ccenture* AND ClientName != "*INTERNAL*" 
+    | table Asset ClientName OperatingGroup usage UserCount UserSession 
+    | stats sum(UserCount) as "User Count" sum(UserSession) as "User Session" by ClientName Asset 
+    | fillnull value=0 "User Session" 
+    | eval usage=if('User Session'==0,"Not Used","Used")] 
+| append 
+    [ search index="aiam_mywizard_assetusagedashboard_manual_index" earliest=0 
+        source="Manual Asset which we not receive usage.csv" 
+    | rename "Asset Name" as Asset "User Count" as UserCount "User Session" as UserSession 
+    | table Asset "User Count" "User Session" 
+    | fillnull value=Others ClientName
+    | eval ClientName=trim(ClientName)
+    | fillnull value=0 "User Session" "User Count" 
+    | eval usage="Not Used"] 
+| fillnull value="Not Applicable" OperatingGroup 
+| lookup ClientNames_lookup_sri.csv "Client Name - Provided" as ClientName OUTPUT "Client - Corrected", "Operating Group" "Client Account Lead"
+| rename "Client - Corrected" as client_name 
+| fillnull client_name value="NULL" 
+| fillnull "Operating Group" value="NULL" 
+| fillnull value=0 "User Session","User Count" 
+| eval "Client Name"= if(client_name=="NULL",ClientName,client_name) 
+| eval "OperatingGroup1"=if('Operating Group'=="NULL",OperatingGroup,'Operating Group') 
+| replace "Access" with "Basic Usage" in Type 
+| replace "Real Usage" with "Extended Usage" in Type 
+| table "Client Name",Asset,"OperatingGroup1","Client Account Lead", usage,"User Session","User Count" 
+| search Asset!=Asset_Name AND Asset!=AssetName AND "Client Name"!=ClientName AND Asset!="Assets for System Integration and Application Development -Agile" AND Asset!="Machine Learning" AND Asset!="myWizard360 ML Core" AND Asset!="Web monitoring" 
+| mvexpand Asset 
+| rename OperatingGroup1 as "Operating Group" 
+| rename usage as Usage 
+| table "Client Name",Asset,"Operating Group","Client Account Lead", Usage,"User Session","User Count" 
+| search Asset="*"  AND "Operating Group"="*" AND Usage="*"
