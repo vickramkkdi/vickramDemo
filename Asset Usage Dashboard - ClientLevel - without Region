@@ -101,7 +101,7 @@ index=aiam_mwizard_asset_real_access_index
     | sort ClientName Asset OperatingGroup -usage 
     | dedup ClientName Asset OperatingGroup]
     | append 
-        [ search index="aiam_mywizard_assetusage_mywizard360_index" source="Mywizard360 Asset which we not receive usage.csv"
+        [ search index="aiam_mywizard_assetusage_mywizard360_index" source="Mywizard360 Asset which we not receive usage.csv"  earliest=0 
         | eval ClientName="Others",usage="Not Used" 
         | table ClientName Asset "User Count" "User Session" usage 
         | search ClientName!=*ccenture* AND ClientName != "*INTERNAL*" 
