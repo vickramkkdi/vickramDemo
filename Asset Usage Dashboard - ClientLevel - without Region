@@ -10,16 +10,16 @@ index=aiam_mwizard_asset_real_access_index
 | eval Session=date_year+date_month+date_mday+cs_username 
 | eval usage="Used" 
 | search Asset=* 
-| table MasterClient,usage,Session,cs_username,Asset,OperatingGroup,Type 
-| stats dc(Session) as "User Session" dc(cs_username) as "User Count" by MasterClient ,Asset,usage,"OperatingGroup" 
-| fields MasterClient,Asset,usage,"OperatingGroup","User Session","User Count" 
-| rename MasterClient as ClientName 
-| append 
-    [| inputlookup MAS_Provisioning_Fulfilled_Report_fds.csv 
+| table MasterClient,usage,Session,cs_username,Asset,OperatingGroup,Type Region
+| stats dc(Session) as "User Session" dc(cs_username) as "User Count" values(Region) as Region by MasterClient ,Asset,usage,"OperatingGroup"
+| fields MasterClient,Asset,usage,"OperatingGroup","User Session","User Count" Region
+| rename MasterClient as ClientName
+
+|append[| inputlookup MAS_Provisioning_Fulfilled_Report_fds.csv 
     | search GeographicUnit!=NULL AND GeographicUnit!=*1* AND Status = "Fulfilled"
     | eval ClientName=trim(ClientName)
-    | search ClientName!=*ccenture* AND ClientName != "*INTERNAL*" AND OperatingGroup!="NULL" AND OperatingGroup!="Other" AND OperatingGroup!="N/A" 
-    | fields MasterClient,"Product Name" , "OperatingGroup" 
+    | search ClientName!=*ccenture* AND ClientName != "*INTERNAL*" AND OperatingGroup!="NULL" AND OperatingGroup!="Other" AND OperatingGroup!="N/A" |rename GeographicUnit as Region
+    | fields MasterClient,"Product Name" , "OperatingGroup" Region
     | lookup asset_URL_Mapping_fds.csv "Tool Name" as "Product Name" OUTPUT Asset, 
     | eval usage="Not Used" 
     | eval "User Session" = "0" 
@@ -28,10 +28,11 @@ index=aiam_mwizard_asset_real_access_index
     | mvexpand Asset 
     | mvexpand ClientName 
     | search Asset=* 
-    | rename MasterClient as ClientName] 
+    | rename MasterClient as ClientName]
 | sort ClientName Asset OperatingGroup -usage 
 | dedup ClientName Asset OperatingGroup 
-| table ClientName,Asset,usage,OperatingGroup,"User Session","User Count" 
+| table ClientName,Asset,usage,OperatingGroup,"User Session","User Count" Region
+
 | append 
     [ search index="mywizard_intergration_and_architect_wizard_index"
     | eval "Client Name"=trim('Client Name')
@@ -41,19 +42,21 @@ index=aiam_mwizard_asset_real_access_index
     | stats dc(Session) as "User Session",dc(CreatedByUser) as "User Count" by "Client Name" 
     | eval Asset="Architect Wizard (for myWizard)" 
     | table Asset,"Client Name","User Session","User Count" 
-    | lookup MAS_Provisioning_Fulfilled_Report_fds.csv ClientName as "Client Name" OUTPUTNEW MasterClient,OperatingGroup 
+    | lookup MAS_Provisioning_Fulfilled_Report_fds.csv ClientName as "Client Name" OUTPUTNEW MasterClient,OperatingGroup,GeographicUnit as Region
     | search MasterClient !="*INTERNAL*" 
     | mvexpand MasterClient 
     | mvexpand OperatingGroup 
     | dedup MasterClient 
     | rename MasterClient as ClientName 
     | eval usage=if('User Session'=="0","Not Used","Used") 
-    | table Asset ClientName "User Count" "User Session" usage] 
-
+    |stats sum("User Session") as "User Session" sum("User Count") as "User Count" values(Region) as Region by ClientName Asset usage OperatingGroup
+    | table ClientName,Asset,usage,OperatingGroup,"User Session","User Count" Region]
+    
+    
 |append[|search index=aiam_mywizard_mywizard360_asset_index 
     | eval OperatingGroup="Not Available" 
     | eval ClientName=trim(ClientName)
-    | rename "AssetName" as Asset "ClientName" as ClientName "EndToEnd UID" as EndToEndUId User_ID as UserID 
+    | rename "AssetName" as Asset "ClientName" as ClientName "EndToEnd UID" as EndToEndUId User_ID as UserID RegionName as Region
     | search ClientName!=*ccenture* AND ClientName != "*INTERNAL*" 
     | replace "myWizard 360 Ticket Analysis" with "Deep Dive Trends & Text Analyzers" in Asset 
     | replace "myWizard 360 Web Analytics" with "Web Analytics" in Asset 
@@ -65,16 +68,16 @@ index=aiam_mwizard_asset_real_access_index
     | search Asset!=Asset_Name AND Asset!=AssetName Asset!="Assets for System Integration and Application Development -Agile" 
     | lookup mywizard360_AssetNameMapping.csv "Tool Name" as Asset OUTPUT Asset 
     | mvexpand Asset 
-    | stats dc(UserID) as "User Count" sum(UserSession) as "User Session" by ClientName Asset OperatingGroup 
+    | stats dc(UserID) as "User Count" sum(UserSession) as "User Session" values(Region) as Region by ClientName Asset OperatingGroup 
     | fillnull value=0 "User Session" 
     | eval usage=if("User Session"=="0","Not Used","Used") 
-    | table ClientName Asset "User Count" "User Session" usage OperatingGroup 
-    | append 
+    | table ClientName Asset "User Count" "User Session" usage OperatingGroup Region
+| append 
         [ search index="aiam_mywizard_assetusage_mywizard360_index" source!="Mywizard360 Asset which we not receive usage.csv"
         | eval ClientName=trim(ClientName)
         | search ClientName!=*ccenture* AND ClientName != "*INTERNAL*" 
         | eval OperatingGroup="Not Available" 
-        | rename "Delivery_Name" as Asset, User_ID as UserID 
+        | rename "Delivery_Name" as Asset, User_ID as UserID RegionName as Region
         | replace "myWizard 360 Ticket Analysis" with "Deep Dive Trends & Text Analyzers" in Asset 
         | replace "myWizard 360 Web Analytics" with "Web Analytics" in Asset 
         | replace "myWizard 360 Automatic Ticket Resolver" with "myWizard 360 Automatic Ticket Resolver v3" in Asset 
@@ -85,62 +88,63 @@ index=aiam_mwizard_asset_real_access_index
         | search Asset!=Asset_Name AND Asset!=AssetName Asset!="Assets for System Integration and Application Development -Agile" 
         | lookup mywizard360_AssetNameMapping.csv "Tool Name" as Asset OUTPUT Asset 
         | mvexpand Asset 
-        | stats dc(UserID) as "User Count" sum(UserSession) as "User Session" by ClientName ,Asset,OperatingGroup 
+        | stats dc(UserID) as "User Count" sum(UserSession) as "User Session" values(Region) as Region by ClientName ,Asset,OperatingGroup 
         | fillnull value=0 "User Session" 
         | eval usage=if('User Session'=="0","Not Used","Used") 
-        | table ClientName Asset "User Count" "User Session" usage OperatingGroup] 
-    | rename "User Session" as UserSession "User Count" as UserCount 
-    | lookup ClientNames_lookup_sri.csv "Client Name - Provided" as ClientName OUTPUT "Client - Corrected", "Operating Group" 
+        | table ClientName Asset "User Count" "User Session" usage OperatingGroup Region]
+        | rename "User Session" as UserSession "User Count" as UserCount 
+    | lookup ClientNames_lookup_sri.csv "Client Name - Provided" as ClientName OUTPUT "Client - Corrected", "Operating Group" GeographicUnit 
     | rename "Client - Corrected" as client_name 
     | fillnull client_name value="NULL" 
     | fillnull "Operating Group" value="NULL" 
+    | fillnull GeographicUnit value="NULL"
     | eval "Client Name"= if(client_name=="NULL",ClientName,client_name) 
-    | eval "OperatingGroup1"=if('Operating Group'=="NULL",OperatingGroup,'Operating Group') 
-    | stats sum(UserSession) as "User Session",sum(UserCount) as "User Count" by "Client Name" Asset OperatingGroup1 usage 
-    | rename "Client Name" as ClientName,OperatingGroup1 as OperatingGroup 
+    | eval "OperatingGroup1"=if('Operating Group'=="NULL",OperatingGroup,'Operating Group')
+    | eval Region1=if(GeographicUnit=="NULL",Region,'GeographicUnit')
+    | stats sum(UserSession) as "User Session",sum(UserCount) as "User Count" values(Region1) as Region1 by "Client Name" Asset OperatingGroup1 usage 
+    | rename "Client Name" as ClientName,OperatingGroup1 as OperatingGroup Region1 as Region
     | sort ClientName Asset OperatingGroup -usage 
-    | dedup ClientName Asset OperatingGroup]
-    | append 
-        [ search index="aiam_mywizard_assetusage_mywizard360_index" source="Mywizard360 Asset which we not receive usage.csv"  earliest=0 
+    | dedup ClientName Asset OperatingGroup
+    | eval usage=if('User Session'="0","Not Used","Used")]
+    
+|append[|search index="aiam_mywizard_assetusage_mywizard360_index" source="Mywizard360 Asset which we not receive usage.csv"  earliest=0 
         | eval ClientName="Others",usage="Not Used" 
         | table ClientName Asset "User Count" "User Session" usage 
         | search ClientName!=*ccenture* AND ClientName != "*INTERNAL*" 
-        | table ClientName Asset "User Count" "User Session" usage OperatingGroup]
-
-
- 
-| append 
-    [ search index=aiam_mywizard_assetusagedashboard_manual_index 
+        | table ClientName,Asset,usage,OperatingGroup,"User Session","User Count" Region]
+        
+|append [|search index=aiam_mywizard_assetusagedashboard_manual_index
     | rename "Asset Name" as Asset "Master Client Name" as ClientName "User Count" as UserCount "User Session" as UserSession
     | eval ClientName=trim(ClientName)
     | search ClientName!=*ccenture* AND ClientName != "*INTERNAL*" 
-    | table Asset ClientName OperatingGroup usage UserCount UserSession 
-    | stats sum(UserCount) as "User Count" sum(UserSession) as "User Session" by ClientName Asset 
+    | table Asset ClientName OperatingGroup usage UserCount UserSession Region
+    | stats sum(UserCount) as "User Count" sum(UserSession) as "User Session" values(Region) as Region by ClientName Asset 
     | fillnull value=0 "User Session" 
-    | eval usage=if('User Session'==0,"Not Used","Used")] 
+    | eval usage=if('User Session'==0,"Not Used","Used") ]
 | append 
     [ search index="aiam_mywizard_assetusagedashboard_manual_index" earliest=0 
         source="Manual Asset which we not receive usage.csv" 
     | rename "Asset Name" as Asset "User Count" as UserCount "User Session" as UserSession 
-    | table Asset "User Count" "User Session" 
+    | table Asset ClientName OperatingGroup usage "User Count" "User Session" Region
     | fillnull value=Others ClientName
     | eval ClientName=trim(ClientName)
     | fillnull value=0 "User Session" "User Count" 
-    | eval usage="Not Used"] 
+    | eval usage="Not Used"]
+    
 | fillnull value="Not Applicable" OperatingGroup 
-| lookup ClientNames_lookup_sri.csv "Client Name - Provided" as ClientName OUTPUT "Client - Corrected", "Operating Group" "Client Account Lead"
+| lookup ClientNames_lookup_sri.csv "Client Name - Provided" as ClientName OUTPUT "Client - Corrected", "Operating Group" "Client Account Lead" GeographicUnit
 | rename "Client - Corrected" as client_name 
 | fillnull client_name value="NULL" 
 | fillnull "Operating Group" value="NULL" 
+| fillnull GeographicUnit value="NULL"
 | fillnull value=0 "User Session","User Count" 
 | eval "Client Name"= if(client_name=="NULL",ClientName,client_name) 
 | eval "OperatingGroup1"=if('Operating Group'=="NULL",OperatingGroup,'Operating Group') 
-| replace "Access" with "Basic Usage" in Type 
-| replace "Real Usage" with "Extended Usage" in Type 
-| table "Client Name",Asset,"OperatingGroup1","Client Account Lead", usage,"User Session","User Count" 
+| eval Region1=if(GeographicUnit=="NULL",Region,'GeographicUnit')
+| table "Client Name",Asset,"OperatingGroup1","Client Account Lead", usage,"User Session","User Count" Region1
 | search Asset!=Asset_Name AND Asset!=AssetName AND "Client Name"!=ClientName AND Asset!="Assets for System Integration and Application Development -Agile" AND Asset!="Machine Learning" AND Asset!="myWizard360 ML Core" AND Asset!="Web monitoring" 
 | mvexpand Asset 
-| rename OperatingGroup1 as "Operating Group" 
+| rename OperatingGroup1 as "Operating Group" Region1 as Region
 | rename usage as Usage 
-| table "Client Name",Asset,"Operating Group","Client Account Lead", Usage,"User Session","User Count" 
+| table "Client Name",Asset,"Operating Group",Region,"Client Account Lead", Usage,"User Session","User Count" 
 | search Asset="*"  AND "Operating Group"="*" AND Usage="*"
